@@ -21,6 +21,9 @@ jobs:
     - name: Install Rust toolchain
       run: rustup update --no-self-update nightly
 
+    - name: Set Rust toolchain to nightly
+      run: rustup default nightly
+
     - name: Build Documentation
       run: cargo doc --all --no-deps
 
