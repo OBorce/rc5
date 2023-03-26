@@ -17,7 +17,7 @@ use std::cmp::min;
 /// words and blocks of data.
 pub struct RC5<T> {
     //TODO: maybe add an allocator support
-    s_arr: Box<[T]>,
+    s_arr: Box<[[T; 2]]>,
     s0: T,
     s1: T,
 }
@@ -56,28 +56,24 @@ where
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
-        let (l_arr, s_arr) = RC5::init_sl_arrays(key, repetitions);
+        let (s_arr, l_arr) = RC5::init_sl_arrays(key, repetitions);
 
-        Ok(RC5::mix_sl_arrays(l_arr, s_arr))
+        Ok(RC5::mix_sl_arrays(s_arr, l_arr))
     }
 
     fn init_sl_arrays(key: &[u8], repetitions: u8) -> (Box<[T]>, Box<[T]>) {
         let p = pw::<T>();
         let q = qw::<T>();
 
-        let l_arr: Box<[T]> = key
-            .iter()
-            .copied()
-            .array_chunks()
-            .map(T::from_le_bytes)
-            .collect();
+        let l = key.iter().copied().array_chunks().map(T::from_le_bytes);
 
         let t = 2 * (repetitions as usize + 1);
         let s = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
-        (l_arr, s.collect())
+
+        (s.collect(), l.collect())
     }
 
-    pub fn mix_sl_arrays(l_arr: Box<[T]>, s_arr: Box<[T]>) -> RC5<T> {
+    pub fn mix_sl_arrays(s_arr: Box<[T]>, l_arr: Box<[T]>) -> RC5<T> {
         let total_count = 3 * max(s_arr.len(), l_arr.len());
         let chunk_size = min(s_arr.len(), l_arr.len());
 
@@ -105,7 +101,7 @@ where
         let ([s0, s1], rest) = s_arr.split_array_ref();
 
         RC5 {
-            s_arr: rest.into(),
+            s_arr: rest.array_chunks().copied().collect(),
             s0: *s0,
             s1: *s1,
         }
@@ -139,16 +135,12 @@ where
         *a = a.wrapping_add(&self.s0);
         *b = b.wrapping_add(&self.s1);
 
-        self.s_arr
-            .iter()
-            .copied()
-            .array_chunks::<2>()
-            .for_each(|[s1, s2]| {
-                // A = A ^ B << B + S[2*i]
-                // B = B ^ A << A + S[2*i + 1]
-                *a = (*a ^ *b).rotate_left(*b).wrapping_add(&s1);
-                *b = (*b ^ *a).rotate_left(*a).wrapping_add(&s2);
-            });
+        for [s1, s2] in self.s_arr.iter() {
+            // A = A ^ B << B + S[2*i]
+            // B = B ^ A << A + S[2*i + 1]
+            *a = (*a ^ *b).rotate_left(*b).wrapping_add(s1);
+            *b = (*b ^ *a).rotate_left(*a).wrapping_add(s2);
+        }
     }
 
     /// Encrypts the two-word block represented by the references `a_bytes` and `b_bytes`.
@@ -215,17 +207,12 @@ where
     /// # }
     /// ```
     pub fn decrypt_words(&self, a: &mut T, b: &mut T) {
-        self.s_arr
-            .iter()
-            .rev()
-            .copied()
-            .array_chunks::<2>()
-            .for_each(|[s2, s1]| {
-                // B = ((B - S[2*i+1]) >> A) ^ A
-                *b = b.wrapping_sub(&s2).rotate_right(*a) ^ *a;
-                // A = ((A - S[2*i]) >> B) ^ B
-                *a = a.wrapping_sub(&s1).rotate_right(*b) ^ *b;
-            });
+        for [s1, s2] in self.s_arr.iter().rev() {
+            // B = ((B - S[2*i+1]) >> A) ^ A
+            *b = b.wrapping_sub(s2).rotate_right(*a) ^ *a;
+            // A = ((A - S[2*i]) >> B) ^ B
+            *a = a.wrapping_sub(s1).rotate_right(*b) ^ *b;
+        }
 
         *b = b.wrapping_sub(&self.s1);
         *a = a.wrapping_sub(&self.s0);
@@ -429,6 +416,83 @@ pub fn new_rc5_dyn(
     }
 }
 
+/// The `RC5DynInitError` enum represents the possible errors that can occur during the
+/// [RC5] initialization with runtime width using [new_rc5_dyn]
+#[derive(thiserror::Error, Debug)]
+pub enum RC5DynControlBlockInitError {
+    #[error("invalid control block length `{0}`; should be at least 4 bytes long")]
+    InvalidControlBlockLength(usize),
+    #[error("unsupported rc5 algorithm version `{0}`; the only supported version is 0x10")]
+    UnsupportedRC5Version(u8),
+    #[error("specified key length `{0}` does not corespond to the provided key `{1}`")]
+    InvalidControlBlockKeyLength(u8, usize),
+    #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
+    InvalidWidth(usize),
+    #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+    InvalidKeySize(usize),
+}
+
+impl From<RC5DynInitError> for RC5DynControlBlockInitError {
+    fn from(value: RC5DynInitError) -> Self {
+        match value {
+            RC5DynInitError::InvalidWidth(size) => RC5DynControlBlockInitError::InvalidWidth(size),
+            RC5DynInitError::InvalidKeySize(size) => {
+                RC5DynControlBlockInitError::InvalidKeySize(size)
+            }
+        }
+    }
+}
+/// Constructs a new [RC5] encryption algorithm instance from a rc5 control block
+///
+/// # Arguments
+///
+/// * control_block - The control block bytes, minimum length 4
+///
+/// # Returns
+///
+/// A Result containing a boxed dyn [RC5Algo] instance on success, or a [RC5DynControlBlockInitError] on failure.
+///
+/// # Examples
+///
+/// ```
+/// use rc5::{new_rc5_dyn_from_control_block, RC5Algo};
+///
+/// let control_block = [
+///     0x10, 0x20, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09
+/// ];
+/// let algo = new_rc5_dyn_from_control_block(&control_block).unwrap();
+/// let pt_org = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+/// let mut pt = pt_org.clone();
+/// let mut ct = algo.encrypt(&mut pt).unwrap();
+/// assert_ne!(pt_org, ct);
+/// let decrypted = algo.decrypt(&mut ct).unwrap();
+/// assert_eq!(pt_org, decrypted);
+/// ````
+pub fn new_rc5_dyn_from_control_block(
+    control_block: &[u8],
+) -> Result<Box<dyn RC5Algo>, RC5DynControlBlockInitError> {
+    if control_block.len() < 4 {
+        return Err(RC5DynControlBlockInitError::InvalidControlBlockLength(
+            control_block.len(),
+        ));
+    }
+
+    let ([version, width, repetitions, key_len], key) = control_block.split_array_ref();
+
+    if *version != 0x10 {
+        return Err(RC5DynControlBlockInitError::UnsupportedRC5Version(*version));
+    }
+
+    if *key_len as usize != key.len() {
+        return Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(
+            *key_len,
+            key.len(),
+        ));
+    }
+
+    Ok(new_rc5_dyn(*width as usize, *repetitions, key)?)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -462,7 +526,7 @@ mod tests {
 
     #[test]
     fn invalid_width() {
-        let width = 4;
+        let width = 123;
         let repetitions = 12;
         let key = [1, 2, 3, 4];
         let res = new_rc5_dyn(width, repetitions, &key);
@@ -472,6 +536,60 @@ mod tests {
             Err(RC5DynInitError::InvalidWidth(error_width))
             if error_width == width
         ));
+    }
+
+    #[test]
+    fn invalid_control_bloc_len() {
+        let version = 0x10;
+        let width = 32;
+        let control_block = [version, width, 0x0C];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(
+            res,
+            Err(RC5DynControlBlockInitError::InvalidControlBlockLength(error_cb_len))
+            if error_cb_len == control_block.len()
+        ));
+    }
+
+    #[test]
+    fn invalid_control_bloc_version() {
+        let version = 0x11;
+        let width = 32;
+        let control_block = [
+            version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
+        ];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(
+            res,
+            Err(RC5DynControlBlockInitError::UnsupportedRC5Version(error_version))
+            if error_version == version
+        ));
+    }
+
+    #[test]
+    fn invalid_width_control_bloc() {
+        let version = 0x10;
+        let width = 123;
+        let control_block = [
+            version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
+        ];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(
+            res,
+            Err(RC5DynControlBlockInitError::InvalidWidth(error_width))
+            if error_width == width as usize
+        ));
+    }
+
+    #[test]
+    fn control_block_init_ok() {
+        let version = 0x10;
+        let width = 32;
+        let control_block = [
+            version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
+        ];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(res, Ok(_)));
     }
 
     #[test]

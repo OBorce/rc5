@@ -2,6 +2,10 @@
 name = "rc5"
 version = "0.1.0"
 edition = "2021"
+repository = "https://github.com/OBorce/rc5"
+license = "BSL-1.0"
+authors = ["Boris Onchev"]
+documentation = "https://oborce.github.io/rc5/"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

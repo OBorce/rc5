@@ -14,6 +14,7 @@
 //! expansion process that generates a series of round keys, which are used to encrypt
 //! and decrypt the data.
 //!
+#![feature(array_chunks)]
 #![feature(iter_array_chunks)]
 #![feature(split_array)]
 #![allow(incomplete_features)]
