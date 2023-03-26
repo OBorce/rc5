@@ -49,19 +49,19 @@ where
     /// use rc5::RC5;
     ///
     /// let key = b"my secret key";
-    /// let rc5 = RC5::<u32>::new(key, 12);
+    /// let rc5 = RC5::<u32>::new(12, key);
     /// ```
-    pub fn new(key: &[u8], repetitions: u8) -> Result<RC5<T>, RC5InitError> {
+    pub fn new(repetitions: u8, key: &[u8]) -> Result<RC5<T>, RC5InitError> {
         if key.len() > 255 {
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
-        let (s_arr, l_arr) = RC5::init_sl_arrays(key, repetitions);
+        let (s_arr, l_arr) = RC5::init_sl_arrays(repetitions, key);
 
         Ok(RC5::mix_sl_arrays(s_arr, l_arr))
     }
 
-    fn init_sl_arrays(key: &[u8], repetitions: u8) -> (Box<[T]>, Box<[T]>) {
+    fn init_sl_arrays(repetitions: u8, key: &[u8]) -> (Box<[T]>, Box<[T]>) {
         let p = pw::<T>();
         let q = qw::<T>();
 
@@ -127,7 +127,7 @@ where
     ///
     /// # fn main() -> Result<(), RC5InitError> {
     /// let key = b"my secret key";
-    /// let rc5 = RC5::<u32>::new(key, 12)?;
+    /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
     /// let mut a = 0x12345678;
     /// let mut b = 0x9ABCDEF0;
@@ -143,11 +143,11 @@ where
         *a = a.wrapping_add(&self.s0);
         *b = b.wrapping_add(&self.s1);
 
-        for [s1, s2] in self.s_arr.iter() {
+        for [sa, sb] in self.s_arr.iter() {
             // A = A ^ B << B + S[2*i]
             // B = B ^ A << A + S[2*i + 1]
-            *a = (*a ^ *b).rotate_left(*b).wrapping_add(s1);
-            *b = (*b ^ *a).rotate_left(*a).wrapping_add(s2);
+            *a = (*a ^ *b).rotate_left(*b).wrapping_add(sa);
+            *b = (*b ^ *a).rotate_left(*a).wrapping_add(sb);
         }
     }
 
@@ -164,7 +164,7 @@ where
     ///
     /// # fn main() -> Result<(), RC5InitError> {
     /// let key = b"my secret key";
-    /// let rc5 = RC5::<u32>::new(key, 12)?;
+    /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
     /// let mut a_bytes = [0x78, 0x56, 0x34, 0x12];
     /// let mut b_bytes = [0xF0, 0xDE, 0xBC, 0x9A];
@@ -202,7 +202,7 @@ where
     ///
     /// # fn main() -> Result<(), RC5InitError> {
     /// let key = b"my secret key";
-    /// let rc5 = RC5::<u32>::new(key, 12)?;
+    /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
     /// let mut a = 0x92F4D0C5;
     /// let mut b = 0xEB0088E3;
@@ -215,11 +215,11 @@ where
     /// # }
     /// ```
     pub fn decrypt_words(&self, a: &mut T, b: &mut T) {
-        for [s1, s2] in self.s_arr.iter().rev() {
+        for [sa, sb] in self.s_arr.iter().rev() {
             // B = ((B - S[2*i+1]) >> A) ^ A
-            *b = b.wrapping_sub(s2).rotate_right(*a) ^ *a;
+            *b = b.wrapping_sub(sb).rotate_right(*a) ^ *a;
             // A = ((A - S[2*i]) >> B) ^ B
-            *a = a.wrapping_sub(s1).rotate_right(*b) ^ *b;
+            *a = a.wrapping_sub(sa).rotate_right(*b) ^ *b;
         }
 
         *b = b.wrapping_sub(&self.s1);
@@ -239,7 +239,7 @@ where
     ///
     /// # fn main() -> Result<(), RC5InitError> {
     /// let key = b"my secret key";
-    /// let rc5 = RC5::<u32>::new(key, 12)?;
+    /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
     /// let mut a_bytes = [0xC5, 0xD0, 0xF4, 0x92];
     /// let mut b_bytes = [0xE3, 0x88, 0x00, 0xEB];
@@ -417,9 +417,9 @@ pub fn new_rc5_dyn(
     const W32: usize = std::mem::size_of::<u32>() * 8;
     const W64: usize = std::mem::size_of::<u64>() * 8;
     match width {
-        W16 => Ok(Box::new(RC5::<u16>::new(key, repetitions)?)),
-        W32 => Ok(Box::new(RC5::<u32>::new(key, repetitions)?)),
-        W64 => Ok(Box::new(RC5::<u64>::new(key, repetitions)?)),
+        W16 => Ok(Box::new(RC5::<u16>::new(repetitions, key)?)),
+        W32 => Ok(Box::new(RC5::<u32>::new(repetitions, key)?)),
+        W64 => Ok(Box::new(RC5::<u64>::new(repetitions, key)?)),
         _ => Err(RC5DynInitError::InvalidWidth(width)),
     }
 }
@@ -509,7 +509,7 @@ mod tests {
     fn invalid_key_size_32() {
         let repetitions = 12;
         let key = [0; 256];
-        let res = RC5::<u32>::new(&key, repetitions);
+        let res = RC5::<u32>::new(repetitions, &key);
 
         assert!(matches!(
             res,
@@ -653,7 +653,7 @@ mod tests {
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
         let ct = [0x2D, 0xDC, 0x14, 0x9B, 0xCF, 0x08, 0x8B, 0x9E];
         let repetitions = 12;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -667,7 +667,7 @@ mod tests {
         let mut pt = [0xEA, 0x02, 0x47, 0x14, 0xAD, 0x5C, 0x4D, 0x84];
         let ct = [0x11, 0xE4, 0x3B, 0x86, 0xD2, 0x31, 0xEA, 0x64];
         let repetitions = 12;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -681,7 +681,7 @@ mod tests {
         let pt = [0x96, 0x95, 0x0D, 0xDA, 0x65, 0x4A, 0x3D, 0x62];
         let mut ct = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
         let repetitions = 12;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::decrypt(&rc5, &mut ct).unwrap();
         assert!(&pt[..] == &res[..]);
     }
@@ -695,7 +695,7 @@ mod tests {
         let pt = [0x63, 0x8B, 0x3A, 0x5E, 0xF7, 0x2B, 0x66, 0x3F];
         let mut ct = [0xEA, 0x02, 0x47, 0x14, 0xAD, 0x5C, 0x4D, 0x84];
         let repetitions = 12;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::decrypt(&rc5, &mut ct).unwrap();
         assert!(&pt[..] == &res[..]);
     }
@@ -705,7 +705,7 @@ mod tests {
         let mut pt = [0x00, 0x01, 0x02, 0x03];
         let ct = [0x23, 0xA8, 0xD7, 0x2E];
         let repetitions = 16;
-        let rc5 = RC5::<u16>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u16>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -716,7 +716,7 @@ mod tests {
         let pt = [0x00, 0x01, 0x02, 0x03];
         let mut ct = [0x23, 0xA8, 0xD7, 0x2E];
         let repetitions = 16;
-        let rc5 = RC5::<u16>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u16>::new(repetitions, &key).unwrap();
         let res = RC5Algo::decrypt(&rc5, &mut ct).unwrap();
         assert!(&pt[..] == &res[..]);
     }
@@ -730,7 +730,7 @@ mod tests {
         let mut pt = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
         let ct = [0x2A, 0x0E, 0xDC, 0x0E, 0x94, 0x31, 0xFF, 0x73];
         let repetitions = 20;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -744,7 +744,7 @@ mod tests {
         let pt = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
         let mut ct = [0x2A, 0x0E, 0xDC, 0x0E, 0x94, 0x31, 0xFF, 0x73];
         let repetitions = 20;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::decrypt(&rc5, &mut ct).unwrap();
         assert!(&pt[..] == &res[..]);
     }
@@ -764,7 +764,7 @@ mod tests {
             0x78, 0xDA,
         ];
         let repetitions = 24;
-        let rc5 = RC5::<u64>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u64>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -784,7 +784,7 @@ mod tests {
             0x78, 0xDA,
         ];
         let repetitions = 24;
-        let rc5 = RC5::<u64>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u64>::new(repetitions, &key).unwrap();
         let res = RC5Algo::decrypt(&rc5, &mut ct).unwrap();
         assert!(&pt[..] == &res[..]);
     }
@@ -795,7 +795,7 @@ mod tests {
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
         let ct = [0x7F, 0x1B, 0xA7, 0x16, 0x68, 0xFB, 0xB5, 0x96];
         let repetitions = 12;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
@@ -806,7 +806,7 @@ mod tests {
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
         let ct = [0x63, 0x62, 0x03, 0xEB, 0x60, 0x20, 0x7F, 0xCD];
         let repetitions = 0;
-        let rc5 = RC5::<u32>::new(&key, repetitions).unwrap();
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
         assert!(&ct[..] == &res[..]);
     }
