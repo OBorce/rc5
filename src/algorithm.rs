@@ -73,12 +73,13 @@ where
         let q = qw::<T>();
 
         let t_num_bytes: usize = std::mem::size_of::<T>();
-        let padding_size = (t_num_bytes - (key.len() % t_num_bytes)) % t_num_bytes;
-        let padding = std::iter::repeat(0).take(padding_size);
-        let l_iter = key
-            .iter()
-            .copied()
-            .chain(padding)
+        let l_padding_size = match key.len() {
+            0 => t_num_bytes,
+            len => (t_num_bytes - (len % t_num_bytes)) % t_num_bytes,
+        };
+        let l_iter = std::iter::repeat(0)
+            .take(l_padding_size)
+            .chain(key.iter().copied())
             .array_chunks()
             .map(T::from_le_bytes);
 
@@ -145,8 +146,8 @@ where
     ///
     /// rc5.encrypt_words(&mut a, &mut b);
     ///
-    /// assert_eq!(a, 0x92F4D0C5);
-    /// assert_eq!(b, 0xEB0088E3);
+    /// assert_eq!(a, 0x4907F9B8);
+    /// assert_eq!(b, 0x3F53A579);
     /// # Ok(())
     /// # }
     /// ```
@@ -182,8 +183,8 @@ where
     ///
     /// rc5.encrypt_block(&mut a_bytes, &mut b_bytes);
     ///
-    /// assert_eq!(a_bytes, [0xC5, 0xD0, 0xF4, 0x92]);
-    /// assert_eq!(b_bytes, [0xE3, 0x88, 0x00, 0xEB]);
+    /// assert_eq!(a_bytes, [0xB8, 0xF9, 0x07, 0x49]);
+    /// assert_eq!(b_bytes, [0x79, 0xA5, 0x53, 0x3F]);
     /// # Ok(())
     /// # }
     /// ```
@@ -215,8 +216,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
-    /// let mut a = 0x92F4D0C5;
-    /// let mut b = 0xEB0088E3;
+    /// let mut a = 0x4907F9B8;
+    /// let mut b = 0x3F53A579;
     ///
     /// rc5.decrypt_words(&mut a, &mut b);
     ///
@@ -252,8 +253,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
-    /// let mut a_bytes = [0xC5, 0xD0, 0xF4, 0x92];
-    /// let mut b_bytes = [0xE3, 0x88, 0x00, 0xEB];
+    /// let mut a_bytes = [0xB8, 0xF9, 0x07, 0x49];
+    /// let mut b_bytes = [0x79, 0xA5, 0x53, 0x3F];
     ///
     /// rc5.decrypt_block(&mut a_bytes, &mut b_bytes);
     ///
@@ -804,7 +805,7 @@ mod tests {
     fn encode_0_sized_key() {
         let key = [];
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
-        let ct = [0x7F, 0x1B, 0xA7, 0x16, 0x68, 0xFB, 0xB5, 0x96];
+        let ct = [0x19, 0x4C, 0x67, 0x60, 0x57, 0xC3, 0x3F, 0xBE];
         let repetitions = 12;
         let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
@@ -813,9 +814,23 @@ mod tests {
 
     #[test]
     fn encode_0_repetitions() {
+        let key = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ];
+        let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let ct = [0x63, 0x55, 0x31, 0x9D, 0x13, 0x2A, 0xFF, 0x61];
+        let repetitions = 0;
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
+        let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
+        assert!(&ct[..] == &res[..]);
+    }
+
+    #[test]
+    fn encode_0_repetitions_and_key() {
         let key = [];
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
-        let ct = [0x63, 0x62, 0x03, 0xEB, 0x60, 0x20, 0x7F, 0xCD];
+        let ct = [0x7A, 0x8C, 0xDC, 0x80, 0xBD, 0x66, 0x83, 0x95];
         let repetitions = 0;
         let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
