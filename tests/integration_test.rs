@@ -18,7 +18,7 @@ macro_rules! test_concrete_vs_dynamic {
                 0xFF, 0x48,
             ];
             let repetitions = 12;
-            let rc5_concrete = RC5::<$t>::new(&key, repetitions);
+            let rc5_concrete = RC5::<$t>::new(repetitions, &key);
             const W: usize = 8 * std::mem::size_of::<$t>();
             let rc5_dyn = new_rc5_dyn(W, repetitions, &key);
 
@@ -68,11 +68,12 @@ macro_rules! test_encrypt_decrypt_full_message {
         fn $name() {
             let key = b"my secret key";
             let repetitions = 12;
-            let rc5 = RC5::<$t>::new(key, repetitions).unwrap();
+            let rc5 = RC5::<$t>::new(repetitions, key).unwrap();
 
             let mut plaintext = b"hello there !!!".to_vec();
             const BLOCK_SIZE: usize = 2 * std::mem::size_of::<$t>();
-            plaintext.resize(std::cmp::max(plaintext.len() % 8, BLOCK_SIZE), 0);
+            let padding_size = (BLOCK_SIZE - key.len() % BLOCK_SIZE) % BLOCK_SIZE;
+            plaintext.resize(plaintext.len() + padding_size, 0);
 
             let original = plaintext.clone();
 
