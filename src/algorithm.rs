@@ -65,7 +65,15 @@ where
         let p = pw::<T>();
         let q = qw::<T>();
 
-        let l = key.iter().copied().array_chunks().map(T::from_le_bytes);
+        let t_num_bytes: usize = std::mem::size_of::<T>();
+        let padding_size = (t_num_bytes - (key.len() % t_num_bytes)) % t_num_bytes;
+        let padding = std::iter::repeat(0).take(padding_size);
+        let l = key
+            .iter()
+            .copied()
+            .chain(padding)
+            .array_chunks()
+            .map(T::from_le_bytes);
 
         let t = 2 * (repetitions as usize + 1);
         let s = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
@@ -126,8 +134,8 @@ where
     ///
     /// rc5.encrypt_words(&mut a, &mut b);
     ///
-    /// assert_eq!(a, 0xA0BD9E21);
-    /// assert_eq!(b, 0xEBBC323);
+    /// assert_eq!(a, 0x92F4D0C5);
+    /// assert_eq!(b, 0xEB0088E3);
     /// # Ok(())
     /// # }
     /// ```
@@ -163,8 +171,8 @@ where
     ///
     /// rc5.encrypt_block(&mut a_bytes, &mut b_bytes);
     ///
-    /// assert_eq!(a_bytes, [0x21, 0x9E, 0xBD, 0xA0]);
-    /// assert_eq!(b_bytes, [0x23, 0xC3, 0xBB, 0x0E]);
+    /// assert_eq!(a_bytes, [0xC5, 0xD0, 0xF4, 0x92]);
+    /// assert_eq!(b_bytes, [0xE3, 0x88, 0x00, 0xEB]);
     /// # Ok(())
     /// # }
     /// ```
@@ -196,8 +204,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(key, 12)?;
     ///
-    /// let mut a = 0xA0BD9E21;
-    /// let mut b = 0xEBBC323;
+    /// let mut a = 0x92F4D0C5;
+    /// let mut b = 0xEB0088E3;
     ///
     /// rc5.decrypt_words(&mut a, &mut b);
     ///
@@ -233,8 +241,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(key, 12)?;
     ///
-    /// let mut a_bytes = [0x21, 0x9E, 0xBD, 0xA0];
-    /// let mut b_bytes = [0x23, 0xC3, 0xBB, 0x0E];
+    /// let mut a_bytes = [0xC5, 0xD0, 0xF4, 0x92];
+    /// let mut b_bytes = [0xE3, 0x88, 0x00, 0xEB];
     ///
     /// rc5.decrypt_block(&mut a_bytes, &mut b_bytes);
     ///
