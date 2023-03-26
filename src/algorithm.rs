@@ -22,6 +22,13 @@ pub struct RC5<T> {
     s1: T,
 }
 
+/// Holds the S and L arrays,
+/// used in the init step of RC5
+struct SLArrays<T> {
+    s_arr: Box<[T]>,
+    l_arr: Box<[T]>,
+}
+
 impl<T> RC5<T>
 where
     T: num_traits::Unsigned
@@ -56,32 +63,37 @@ where
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
-        let (s_arr, l_arr) = RC5::init_sl_arrays(repetitions, key);
+        let sl_arrays = RC5::init_sl_arrays(repetitions, key);
 
-        Ok(RC5::mix_sl_arrays(s_arr, l_arr))
+        Ok(RC5::mix_sl_arrays(sl_arrays))
     }
 
-    fn init_sl_arrays(repetitions: u8, key: &[u8]) -> (Box<[T]>, Box<[T]>) {
+    fn init_sl_arrays(repetitions: u8, key: &[u8]) -> SLArrays<T> {
         let p = pw::<T>();
         let q = qw::<T>();
 
         let t_num_bytes: usize = std::mem::size_of::<T>();
-        let padding_size = (t_num_bytes - (key.len() % t_num_bytes)) % t_num_bytes;
-        let padding = std::iter::repeat(0).take(padding_size);
-        let l = key
-            .iter()
-            .copied()
-            .chain(padding)
+        let l_padding_size = match key.len() {
+            0 => t_num_bytes,
+            len => (t_num_bytes - (len % t_num_bytes)) % t_num_bytes,
+        };
+        let l_iter = std::iter::repeat(0)
+            .take(l_padding_size)
+            .chain(key.iter().copied())
             .array_chunks()
             .map(T::from_le_bytes);
 
         let t = 2 * (repetitions as usize + 1);
-        let s = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
+        let s_iter = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
 
-        (s.collect(), l.collect())
+        SLArrays {
+            s_arr: s_iter.collect(),
+            l_arr: l_iter.collect(),
+        }
     }
 
-    pub fn mix_sl_arrays(s_arr: Box<[T]>, l_arr: Box<[T]>) -> RC5<T> {
+    fn mix_sl_arrays(sl_arrays: SLArrays<T>) -> RC5<T> {
+        let SLArrays { s_arr, l_arr } = sl_arrays;
         let total_count = 3 * max(s_arr.len(), l_arr.len());
         let chunk_size = min(s_arr.len(), l_arr.len());
 
@@ -134,8 +146,8 @@ where
     ///
     /// rc5.encrypt_words(&mut a, &mut b);
     ///
-    /// assert_eq!(a, 0x92F4D0C5);
-    /// assert_eq!(b, 0xEB0088E3);
+    /// assert_eq!(a, 0x4907F9B8);
+    /// assert_eq!(b, 0x3F53A579);
     /// # Ok(())
     /// # }
     /// ```
@@ -171,8 +183,8 @@ where
     ///
     /// rc5.encrypt_block(&mut a_bytes, &mut b_bytes);
     ///
-    /// assert_eq!(a_bytes, [0xC5, 0xD0, 0xF4, 0x92]);
-    /// assert_eq!(b_bytes, [0xE3, 0x88, 0x00, 0xEB]);
+    /// assert_eq!(a_bytes, [0xB8, 0xF9, 0x07, 0x49]);
+    /// assert_eq!(b_bytes, [0x79, 0xA5, 0x53, 0x3F]);
     /// # Ok(())
     /// # }
     /// ```
@@ -204,8 +216,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
-    /// let mut a = 0x92F4D0C5;
-    /// let mut b = 0xEB0088E3;
+    /// let mut a = 0x4907F9B8;
+    /// let mut b = 0x3F53A579;
     ///
     /// rc5.decrypt_words(&mut a, &mut b);
     ///
@@ -241,8 +253,8 @@ where
     /// let key = b"my secret key";
     /// let rc5 = RC5::<u32>::new(12, key)?;
     ///
-    /// let mut a_bytes = [0xC5, 0xD0, 0xF4, 0x92];
-    /// let mut b_bytes = [0xE3, 0x88, 0x00, 0xEB];
+    /// let mut a_bytes = [0xB8, 0xF9, 0x07, 0x49];
+    /// let mut b_bytes = [0x79, 0xA5, 0x53, 0x3F];
     ///
     /// rc5.decrypt_block(&mut a_bytes, &mut b_bytes);
     ///
@@ -575,6 +587,22 @@ mod tests {
     }
 
     #[test]
+    fn invalid_control_bloc_key_len() {
+        let version = 0x10;
+        let width = 32;
+        let key_len = 8;
+        let control_block = [
+            version, width, 0x0C, key_len, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB,
+        ];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(
+            res,
+            Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(error_b, error_key_len))
+            if error_b == key_len && error_key_len == control_block.len() - 4
+        ));
+    }
+
+    #[test]
     fn invalid_width_control_bloc() {
         let version = 0x10;
         let width = 123;
@@ -793,7 +821,7 @@ mod tests {
     fn encode_0_sized_key() {
         let key = [];
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
-        let ct = [0x7F, 0x1B, 0xA7, 0x16, 0x68, 0xFB, 0xB5, 0x96];
+        let ct = [0x19, 0x4C, 0x67, 0x60, 0x57, 0xC3, 0x3F, 0xBE];
         let repetitions = 12;
         let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
@@ -802,9 +830,23 @@ mod tests {
 
     #[test]
     fn encode_0_repetitions() {
+        let key = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D,
+            0x0E, 0x0F,
+        ];
+        let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let ct = [0x63, 0x55, 0x31, 0x9D, 0x13, 0x2A, 0xFF, 0x61];
+        let repetitions = 0;
+        let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
+        let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
+        assert!(&ct[..] == &res[..]);
+    }
+
+    #[test]
+    fn encode_0_repetitions_and_key() {
         let key = [];
         let mut pt = [0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
-        let ct = [0x63, 0x62, 0x03, 0xEB, 0x60, 0x20, 0x7F, 0xCD];
+        let ct = [0x7A, 0x8C, 0xDC, 0x80, 0xBD, 0x66, 0x83, 0x95];
         let repetitions = 0;
         let rc5 = RC5::<u32>::new(repetitions, &key).unwrap();
         let res = RC5Algo::encrypt(&rc5, &mut pt).unwrap();
