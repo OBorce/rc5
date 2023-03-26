@@ -587,6 +587,22 @@ mod tests {
     }
 
     #[test]
+    fn invalid_control_bloc_key_len() {
+        let version = 0x10;
+        let width = 32;
+        let key_len = 8;
+        let control_block = [
+            version, width, 0x0C, key_len, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB,
+        ];
+        let res = new_rc5_dyn_from_control_block(&control_block);
+        assert!(matches!(
+            res,
+            Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(error_b, error_key_len))
+            if error_b == key_len && error_key_len == control_block.len() - 4
+        ));
+    }
+
+    #[test]
     fn invalid_width_control_bloc() {
         let version = 0x10;
         let width = 123;
