@@ -72,7 +72,7 @@ macro_rules! test_encrypt_decrypt_full_message {
 
             let mut plaintext = b"hello there !!!".to_vec();
             const BLOCK_SIZE: usize = 2 * std::mem::size_of::<$t>();
-            plaintext.append(&mut vec![0; std::cmp::max(plaintext.len() % 8, BLOCK_SIZE)]);
+            plaintext.resize(std::cmp::max(plaintext.len() % 8, BLOCK_SIZE), 0);
 
             let original = plaintext.clone();
 
