@@ -17,7 +17,7 @@ use std::cmp::min;
 /// words and blocks of data.
 pub struct RC5<T> {
     //TODO: maybe add an allocator support
-    s_arr: Box<[T]>,
+    s_arr: Box<[[T; 2]]>,
     s0: T,
     s1: T,
 }
@@ -56,28 +56,24 @@ where
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
-        let (l_arr, s_arr) = RC5::init_sl_arrays(key, repetitions);
+        let (s_arr, l_arr) = RC5::init_sl_arrays(key, repetitions);
 
-        Ok(RC5::mix_sl_arrays(l_arr, s_arr))
+        Ok(RC5::mix_sl_arrays(s_arr, l_arr))
     }
 
     fn init_sl_arrays(key: &[u8], repetitions: u8) -> (Box<[T]>, Box<[T]>) {
         let p = pw::<T>();
         let q = qw::<T>();
 
-        let l_arr: Box<[T]> = key
-            .iter()
-            .copied()
-            .array_chunks()
-            .map(T::from_le_bytes)
-            .collect();
+        let l = key.iter().copied().array_chunks().map(T::from_le_bytes);
 
         let t = 2 * (repetitions as usize + 1);
         let s = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
-        (l_arr, s.collect())
+
+        (s.collect(), l.collect())
     }
 
-    pub fn mix_sl_arrays(l_arr: Box<[T]>, s_arr: Box<[T]>) -> RC5<T> {
+    pub fn mix_sl_arrays(s_arr: Box<[T]>, l_arr: Box<[T]>) -> RC5<T> {
         let total_count = 3 * max(s_arr.len(), l_arr.len());
         let chunk_size = min(s_arr.len(), l_arr.len());
 
@@ -105,7 +101,7 @@ where
         let ([s0, s1], rest) = s_arr.split_array_ref();
 
         RC5 {
-            s_arr: rest.into(),
+            s_arr: rest.array_chunks().copied().collect(),
             s0: *s0,
             s1: *s1,
         }
@@ -139,16 +135,12 @@ where
         *a = a.wrapping_add(&self.s0);
         *b = b.wrapping_add(&self.s1);
 
-        self.s_arr
-            .iter()
-            .copied()
-            .array_chunks::<2>()
-            .for_each(|[s1, s2]| {
-                // A = A ^ B << B + S[2*i]
-                // B = B ^ A << A + S[2*i + 1]
-                *a = (*a ^ *b).rotate_left(*b).wrapping_add(&s1);
-                *b = (*b ^ *a).rotate_left(*a).wrapping_add(&s2);
-            });
+        for [s1, s2] in self.s_arr.iter() {
+            // A = A ^ B << B + S[2*i]
+            // B = B ^ A << A + S[2*i + 1]
+            *a = (*a ^ *b).rotate_left(*b).wrapping_add(s1);
+            *b = (*b ^ *a).rotate_left(*a).wrapping_add(s2);
+        }
     }
 
     /// Encrypts the two-word block represented by the references `a_bytes` and `b_bytes`.
@@ -215,17 +207,12 @@ where
     /// # }
     /// ```
     pub fn decrypt_words(&self, a: &mut T, b: &mut T) {
-        self.s_arr
-            .iter()
-            .rev()
-            .copied()
-            .array_chunks::<2>()
-            .for_each(|[s2, s1]| {
-                // B = ((B - S[2*i+1]) >> A) ^ A
-                *b = b.wrapping_sub(&s2).rotate_right(*a) ^ *a;
-                // A = ((A - S[2*i]) >> B) ^ B
-                *a = a.wrapping_sub(&s1).rotate_right(*b) ^ *b;
-            });
+        for [s1, s2] in self.s_arr.iter().rev() {
+            // B = ((B - S[2*i+1]) >> A) ^ A
+            *b = b.wrapping_sub(s2).rotate_right(*a) ^ *a;
+            // A = ((A - S[2*i]) >> B) ^ B
+            *a = a.wrapping_sub(s1).rotate_right(*b) ^ *b;
+        }
 
         *b = b.wrapping_sub(&self.s1);
         *a = a.wrapping_sub(&self.s0);
