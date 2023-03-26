@@ -22,6 +22,13 @@ pub struct RC5<T> {
     s1: T,
 }
 
+/// Holds the S and L arrays,
+/// used in the init step of RC5
+struct SLArrays<T> {
+    s_arr: Box<[T]>,
+    l_arr: Box<[T]>,
+}
+
 impl<T> RC5<T>
 where
     T: num_traits::Unsigned
@@ -56,19 +63,19 @@ where
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
-        let (s_arr, l_arr) = RC5::init_sl_arrays(repetitions, key);
+        let sl_arrays = RC5::init_sl_arrays(repetitions, key);
 
-        Ok(RC5::mix_sl_arrays(s_arr, l_arr))
+        Ok(RC5::mix_sl_arrays(sl_arrays))
     }
 
-    fn init_sl_arrays(repetitions: u8, key: &[u8]) -> (Box<[T]>, Box<[T]>) {
+    fn init_sl_arrays(repetitions: u8, key: &[u8]) -> SLArrays<T> {
         let p = pw::<T>();
         let q = qw::<T>();
 
         let t_num_bytes: usize = std::mem::size_of::<T>();
         let padding_size = (t_num_bytes - (key.len() % t_num_bytes)) % t_num_bytes;
         let padding = std::iter::repeat(0).take(padding_size);
-        let l = key
+        let l_iter = key
             .iter()
             .copied()
             .chain(padding)
@@ -76,12 +83,16 @@ where
             .map(T::from_le_bytes);
 
         let t = 2 * (repetitions as usize + 1);
-        let s = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
+        let s_iter = std::iter::successors(Some(p), |x| Some(x.wrapping_add(&q))).take(t);
 
-        (s.collect(), l.collect())
+        SLArrays {
+            s_arr: s_iter.collect(),
+            l_arr: l_iter.collect(),
+        }
     }
 
-    pub fn mix_sl_arrays(s_arr: Box<[T]>, l_arr: Box<[T]>) -> RC5<T> {
+    fn mix_sl_arrays(sl_arrays: SLArrays<T>) -> RC5<T> {
+        let SLArrays { s_arr, l_arr } = sl_arrays;
         let total_count = 3 * max(s_arr.len(), l_arr.len());
         let chunk_size = min(s_arr.len(), l_arr.len());
 
