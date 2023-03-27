@@ -85,6 +85,23 @@ fn rotation_amount<T>(x: u32) -> u32 {
     x % (std::mem::size_of::<T>() * 8) as u32
 }
 
+#[track_caller]
+#[must_use]
+pub fn split_in_half_mut_ref<T, const N: usize>(arr: &mut [T; N * 2]) -> (&mut [T; N], &mut [T; N])
+where
+    [T; N * 2]:,
+{
+    let (first_half, second_half) = arr.split_at_mut(N);
+    // SAFETY: We know the size of the array at is N * 2 so splitting at N will give us two halves
+    // of N elements each
+    unsafe {
+        (
+            &mut *(first_half.as_mut_ptr() as *mut [T; N]),
+            &mut *(second_half.as_mut_ptr() as *mut [T; N]),
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -102,5 +119,18 @@ mod tests {
         let x = 4;
         let amount = rotation_amount::<u16>(x);
         assert_eq!(x, amount);
+    }
+
+    #[test]
+    fn split_in_half_8_to_4() {
+        let mut arr = [1, 2, 3, 4, 5, 6, 7, 8];
+        {
+            let (left, right) = split_in_half_mut_ref::<u32, 4>(&mut arr);
+            assert_eq!(*left, [1, 2, 3, 4]);
+            assert_eq!(*right, [5, 6, 7, 8]);
+            left[0] = 0;
+            right[0] = 0;
+        }
+        assert_eq!(arr, [0, 2, 3, 4, 0, 6, 7, 8]);
     }
 }

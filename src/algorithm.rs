@@ -181,14 +181,14 @@ where
     /// let mut a_bytes = [0x78, 0x56, 0x34, 0x12];
     /// let mut b_bytes = [0xF0, 0xDE, 0xBC, 0x9A];
     ///
-    /// rc5.encrypt_block(&mut a_bytes, &mut b_bytes);
+    /// rc5.encrypt_word_bytes(&mut a_bytes, &mut b_bytes);
     ///
     /// assert_eq!(a_bytes, [0xB8, 0xF9, 0x07, 0x49]);
     /// assert_eq!(b_bytes, [0x79, 0xA5, 0x53, 0x3F]);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn encrypt_block(
+    pub fn encrypt_word_bytes(
         &self,
         a_bytes: &mut [u8; std::mem::size_of::<T>()],
         b_bytes: &mut [u8; std::mem::size_of::<T>()],
@@ -200,6 +200,34 @@ where
 
         a_bytes.copy_from_slice(&a.to_le_bytes());
         b_bytes.copy_from_slice(&b.to_le_bytes());
+    }
+
+    /// Encrypts the two-word block represented by the reference `bytes`.
+    ///
+    /// The `bytes` parameter is a mutable reference to the two words (of type
+    /// `[u8; std::mem::size_of::<T>() * 2]`)
+    /// to be encrypted. The encrypted values are written back to the same array reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rc5::{RC5, RC5InitError};
+    ///
+    /// # fn main() -> Result<(), RC5InitError> {
+    /// let key = b"my secret key";
+    /// let rc5 = RC5::<u32>::new(12, key)?;
+    ///
+    /// let mut bytes = [0x78, 0x56, 0x34, 0x12, 0xF0, 0xDE, 0xBC, 0x9A];
+    ///
+    /// rc5.encrypt_block(&mut bytes);
+    ///
+    /// assert_eq!(bytes, [0xB8, 0xF9, 0x07, 0x49, 0x79, 0xA5, 0x53, 0x3F]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn encrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * 2]) {
+        let (a_bytes, b_bytes) = split_in_half_mut_ref::<u8, { std::mem::size_of::<T>() }>(bytes);
+        self.encrypt_word_bytes(a_bytes, b_bytes);
     }
 
     /// Decrypts the two-word block represented by the references `a` and `b`.
@@ -256,14 +284,14 @@ where
     /// let mut a_bytes = [0xB8, 0xF9, 0x07, 0x49];
     /// let mut b_bytes = [0x79, 0xA5, 0x53, 0x3F];
     ///
-    /// rc5.decrypt_block(&mut a_bytes, &mut b_bytes);
+    /// rc5.decrypt_word_bytes(&mut a_bytes, &mut b_bytes);
     ///
     /// assert_eq!(a_bytes, [0x78, 0x56, 0x34, 0x12]);
     /// assert_eq!(b_bytes, [0xF0, 0xDE, 0xBC, 0x9A]);
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decrypt_block(
+    pub fn decrypt_word_bytes(
         &self,
         a_bytes: &mut [u8; std::mem::size_of::<T>()],
         b_bytes: &mut [u8; std::mem::size_of::<T>()],
@@ -275,6 +303,34 @@ where
 
         a_bytes.copy_from_slice(&a.to_le_bytes());
         b_bytes.copy_from_slice(&b.to_le_bytes());
+    }
+
+    /// Decrypts the two-word block represented by the reference `bytes`.
+    ///
+    /// The `bytes` parameter is a mutable reference to the two words (of type
+    /// `[u8; std::mem::size_of::<T>() * 2]`)
+    /// to be decrypted. The decrypted values are written back to the same array reference.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rc5::{RC5, RC5InitError};
+    ///
+    /// # fn main() -> Result<(), RC5InitError> {
+    /// let key = b"my secret key";
+    /// let rc5 = RC5::<u32>::new(12, key)?;
+    ///
+    /// let mut bytes = [0xB8, 0xF9, 0x07, 0x49, 0x79, 0xA5, 0x53, 0x3F];
+    ///
+    /// rc5.decrypt_block(&mut bytes);
+    ///
+    /// assert_eq!(bytes, [0x78, 0x56, 0x34, 0x12, 0xF0, 0xDE, 0xBC, 0x9A]);
+    /// # Ok(())
+    /// # }
+    /// ```
+    pub fn decrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * 2]) {
+        let (a_bytes, b_bytes) = split_in_half_mut_ref::<u8, { std::mem::size_of::<T>() }>(bytes);
+        self.decrypt_word_bytes(a_bytes, b_bytes);
     }
 }
 
@@ -304,12 +360,12 @@ pub enum RC5InitError {
     InvalidKeySize(usize),
 }
 
-/// Module containing functions for creating dynamic [RC5] algorithms using the [RC5Algo] trait,
+/// Module containing functions for creating dynamic [RC5] algorithms using the [rc5_dyn::RC5Algo] trait,
 /// from runtime width values or a control block.
 pub mod rc5_dyn {
 
     /// The `RC5AlgoError` enum represents the possible errors that can occur during the
-    /// encryption decryption in [super::RC5Algo].
+    /// encryption decryption in [RC5Algo].
     #[derive(thiserror::Error, Debug)]
     pub enum RC5AlgoError {
         #[error(
@@ -327,6 +383,7 @@ pub mod rc5_dyn {
         /// Returns a reference to the encrypted bytes on success, or an [RC5AlgoError] if
         /// the encryption failed.
         fn encrypt<'a>(&self, bytes: &'a mut [u8]) -> Result<&'a mut [u8], RC5AlgoError>;
+
         /// Decrypts the given slice of bytes in place using the RC5 block cipher algorithm.
         ///
         /// Returns a reference to the decrypted bytes on success, or an [RC5AlgoError] if
@@ -349,26 +406,15 @@ pub mod rc5_dyn {
             + super::BitRotabable<T, Output = T>
             + super::BitRotabable<u32, Output = T>,
         [u8; std::mem::size_of::<T>()]:,
+        [u8; std::mem::size_of::<T>() * 2]:,
     {
         fn encrypt<'a>(&self, bytes: &'a mut [u8]) -> Result<&'a mut [u8], RC5AlgoError> {
-            let (a_bytes, b_bytes) = bytes.split_at_mut(bytes.len() / 2);
-
-            self.encrypt_block(
-                &mut *try_into_sized::<T>(a_bytes)?,
-                &mut *try_into_sized::<T>(b_bytes)?,
-            );
-
+            self.encrypt_block(&mut *try_into_two_word_sized::<T>(bytes)?);
             Ok(bytes)
         }
 
         fn decrypt<'a>(&self, bytes: &'a mut [u8]) -> Result<&'a mut [u8], RC5AlgoError> {
-            let (a_bytes, b_bytes) = bytes.split_at_mut(bytes.len() / 2);
-
-            self.decrypt_block(
-                &mut *try_into_sized::<T>(a_bytes)?,
-                &mut *try_into_sized::<T>(b_bytes)?,
-            );
-
+            self.decrypt_block(&mut *try_into_two_word_sized::<T>(bytes)?);
             Ok(bytes)
         }
 
@@ -377,9 +423,9 @@ pub mod rc5_dyn {
         }
     }
 
-    fn try_into_sized<T>(
+    fn try_into_two_word_sized<T>(
         bytes: &mut [u8],
-    ) -> Result<&mut [u8; std::mem::size_of::<T>()], RC5AlgoError>
+    ) -> Result<&mut [u8; std::mem::size_of::<T>() * 2], RC5AlgoError>
     where
         T: num_traits::Unsigned + super::FromToLeBytes<T>,
         [u8; std::mem::size_of::<T>()]:,
@@ -417,7 +463,7 @@ pub mod rc5_dyn {
     ///
     /// # Returns
     ///
-    /// A Result containing a boxed dyn [super::RC5Algo] instance on success, or a [RC5DynInitError] on failure.
+    /// A Result containing a boxed dyn [RC5Algo] instance on success, or a [RC5DynInitError] on failure.
     ///
     /// # Examples
     ///
@@ -485,7 +531,7 @@ pub mod rc5_dyn {
     ///
     /// # Returns
     ///
-    /// A Result containing a boxed dyn [super::RC5Algo] instance on success, or a [RC5DynControlBlockInitError] on failure.
+    /// A Result containing a boxed dyn [RC5Algo] instance on success, or a [RC5DynControlBlockInitError] on failure.
     ///
     /// # Examples
     ///

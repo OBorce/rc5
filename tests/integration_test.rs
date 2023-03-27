@@ -42,26 +42,6 @@ test_concrete_vs_dynamic!(test_concrete_vs_dynamic_16, u16);
 test_concrete_vs_dynamic!(test_concrete_vs_dynamic_32, u32);
 test_concrete_vs_dynamic!(test_concrete_vs_dynamic_64, u64);
 
-#[track_caller]
-#[must_use]
-pub fn split_in_half_mut_ref<T, const N: usize>(
-    arr: &mut [T; N],
-) -> (&mut [T; N / 2], &mut [T; N - N / 2])
-where
-    [T; N / 2]:,
-    [T; N - N / 2]:,
-{
-    let (first_half, second_half) = arr.split_at_mut(N / 2);
-    // SAFETY: first_half points to [T; N / 2]? Yes it's [T] of length N / 2 (checked by split_at)
-    // second_half points to [T; N - N / 2] as that is the reminder of the array
-    unsafe {
-        (
-            &mut *(first_half.as_mut_ptr() as *mut [T; N / 2]),
-            &mut *(second_half.as_mut_ptr() as *mut [T; N - N / 2]),
-        )
-    }
-}
-
 macro_rules! test_encrypt_decrypt_full_message {
     ($name:ident, $t:ty) => {
         #[test]
@@ -77,21 +57,15 @@ macro_rules! test_encrypt_decrypt_full_message {
 
             let original = plaintext.clone();
 
-            plaintext
-                .array_chunks_mut::<BLOCK_SIZE>()
-                .map(split_in_half_mut_ref)
-                .for_each(|(mut a, mut b)| {
-                    rc5.encrypt_block(&mut a, &mut b);
-                });
+            plaintext.array_chunks_mut().for_each(|mut block_chunk| {
+                rc5.encrypt_block(&mut block_chunk);
+            });
 
             assert_ne!(original, plaintext);
 
-            plaintext
-                .array_chunks_mut::<BLOCK_SIZE>()
-                .map(split_in_half_mut_ref)
-                .for_each(|(mut a, mut b)| {
-                    rc5.decrypt_block(&mut a, &mut b);
-                });
+            plaintext.array_chunks_mut().for_each(|mut block_chunk| {
+                rc5.decrypt_block(&mut block_chunk);
+            });
 
             assert_eq!(original, plaintext);
         }
