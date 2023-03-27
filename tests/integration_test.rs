@@ -7,7 +7,7 @@
 #![feature(array_chunks)]
 #![allow(incomplete_features)]
 #![feature(generic_const_exprs)]
-use rc5::{new_rc5_dyn, RC5Algo, RC5};
+use rc5::*;
 
 macro_rules! test_concrete_vs_dynamic {
     ($name:ident, $t:ty) => {
@@ -20,7 +20,7 @@ macro_rules! test_concrete_vs_dynamic {
             let repetitions = 12;
             let rc5_concrete = RC5::<$t>::new(repetitions, &key);
             const W: usize = 8 * std::mem::size_of::<$t>();
-            let rc5_dyn = new_rc5_dyn(W, repetitions, &key);
+            let rc5_dyn = rc5_dyn::new(W, repetitions, &key);
 
             let mut pt = [0; W * 2 / 8];
             let mut pt_dyn = pt.clone();
