@@ -28,8 +28,8 @@ macro_rules! test_concrete_vs_dynamic {
             assert!(rc5_concrete.is_ok());
             assert!(rc5_dyn.is_ok());
 
-            let res = rc5_concrete.map(|rc| RC5Algo::encrypt(&rc, &mut pt));
-            let res_dyn = rc5_dyn.map(|rc| RC5Algo::encrypt(&*rc, &mut pt_dyn));
+            let res = rc5_concrete.map(|rc| rc5_dyn::RC5Algo::encrypt(&rc, &mut pt));
+            let res_dyn = rc5_dyn.map(|rc| rc5_dyn::RC5Algo::encrypt(&*rc, &mut pt_dyn));
 
             assert!(res.is_ok());
             assert!(res_dyn.is_ok());
