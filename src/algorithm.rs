@@ -376,145 +376,153 @@ pub enum RC5InitError {
     InvalidKeySize(usize),
 }
 
-/// The `RC5DynInitError` enum represents the possible errors that can occur during the
-/// [RC5] initialization with runtime width using [new_rc5_dyn]
-#[derive(thiserror::Error, Debug)]
-pub enum RC5DynInitError {
-    #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
-    InvalidWidth(usize),
-    #[error("invalid key size: `{0}`; supported range is [0, 255]")]
-    InvalidKeySize(usize),
-}
+/// Module containing functions for creating dynamic [RC5] algorithms using the [RC5Algo] trait,
+/// from runtime width values or a control block.
+pub mod rc5_dyn {
 
-impl From<RC5InitError> for RC5DynInitError {
-    fn from(value: RC5InitError) -> Self {
-        match value {
-            RC5InitError::InvalidKeySize(size) => RC5DynInitError::InvalidKeySize(size),
-        }
+    /// The `RC5DynInitError` enum represents the possible errors that can occur during the
+    /// [super::RC5] initialization with runtime width using [new]
+    #[derive(thiserror::Error, Debug)]
+    pub enum RC5DynInitError {
+        #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
+        InvalidWidth(usize),
+        #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+        InvalidKeySize(usize),
     }
-}
 
-/// Constructs a new [RC5] encryption algorithm instance with dynamic key size and repetition count.
-///
-/// # Arguments
-///
-/// * width - The bit width of the word size to be used in the algorithm (16, 32, or 64).
-/// * repetitions - The number of rounds of encryption to be performed by the algorithm.
-/// * key - A slice of bytes representing the key to be used for encryption.
-///
-/// # Returns
-///
-/// A Result containing a boxed dyn [RC5Algo] instance on success, or a [RC5DynInitError] on failure.
-///
-/// # Examples
-///
-/// ```
-/// use rc5::{new_rc5_dyn, RC5Algo};
-///
-/// let key = b"my secret key";
-/// let algo = new_rc5_dyn(32, 12, key).unwrap();
-/// let pt_org = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-/// let mut pt = pt_org.clone();
-/// let mut ct = algo.encrypt(&mut pt).unwrap();
-/// assert_ne!(pt_org, ct);
-/// let decrypted = algo.decrypt(&mut ct).unwrap();
-/// assert_eq!(pt_org, decrypted);
-/// ````
-pub fn new_rc5_dyn(
-    width: usize,
-    repetitions: u8,
-    key: &[u8],
-) -> Result<Box<dyn RC5Algo>, RC5DynInitError> {
-    const W16: usize = std::mem::size_of::<u16>() * 8;
-    const W32: usize = std::mem::size_of::<u32>() * 8;
-    const W64: usize = std::mem::size_of::<u64>() * 8;
-    match width {
-        W16 => Ok(Box::new(RC5::<u16>::new(repetitions, key)?)),
-        W32 => Ok(Box::new(RC5::<u32>::new(repetitions, key)?)),
-        W64 => Ok(Box::new(RC5::<u64>::new(repetitions, key)?)),
-        _ => Err(RC5DynInitError::InvalidWidth(width)),
-    }
-}
-
-/// The `RC5DynInitError` enum represents the possible errors that can occur during the
-/// [RC5] initialization with runtime width using [new_rc5_dyn]
-#[derive(thiserror::Error, Debug)]
-pub enum RC5DynControlBlockInitError {
-    #[error("invalid control block length `{0}`; should be at least 4 bytes long")]
-    InvalidControlBlockLength(usize),
-    #[error("unsupported rc5 algorithm version `{0}`; the only supported version is 0x10")]
-    UnsupportedRC5Version(u8),
-    #[error("specified key length `{0}` does not corespond to the provided key `{1}`")]
-    InvalidControlBlockKeyLength(u8, usize),
-    #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
-    InvalidWidth(usize),
-    #[error("invalid key size: `{0}`; supported range is [0, 255]")]
-    InvalidKeySize(usize),
-}
-
-impl From<RC5DynInitError> for RC5DynControlBlockInitError {
-    fn from(value: RC5DynInitError) -> Self {
-        match value {
-            RC5DynInitError::InvalidWidth(size) => RC5DynControlBlockInitError::InvalidWidth(size),
-            RC5DynInitError::InvalidKeySize(size) => {
-                RC5DynControlBlockInitError::InvalidKeySize(size)
+    impl From<super::RC5InitError> for RC5DynInitError {
+        fn from(value: super::RC5InitError) -> Self {
+            match value {
+                super::RC5InitError::InvalidKeySize(size) => RC5DynInitError::InvalidKeySize(size),
             }
         }
     }
-}
-/// Constructs a new [RC5] encryption algorithm instance from a rc5 control block
-///
-/// # Arguments
-///
-/// * control_block - The control block bytes, minimum length 4
-///
-/// # Returns
-///
-/// A Result containing a boxed dyn [RC5Algo] instance on success, or a [RC5DynControlBlockInitError] on failure.
-///
-/// # Examples
-///
-/// ```
-/// use rc5::{new_rc5_dyn_from_control_block, RC5Algo};
-///
-/// let control_block = [
-///     0x10, 0x20, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09
-/// ];
-/// let algo = new_rc5_dyn_from_control_block(&control_block).unwrap();
-/// let pt_org = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
-/// let mut pt = pt_org.clone();
-/// let mut ct = algo.encrypt(&mut pt).unwrap();
-/// assert_ne!(pt_org, ct);
-/// let decrypted = algo.decrypt(&mut ct).unwrap();
-/// assert_eq!(pt_org, decrypted);
-/// ````
-pub fn new_rc5_dyn_from_control_block(
-    control_block: &[u8],
-) -> Result<Box<dyn RC5Algo>, RC5DynControlBlockInitError> {
-    if control_block.len() < 4 {
-        return Err(RC5DynControlBlockInitError::InvalidControlBlockLength(
-            control_block.len(),
-        ));
+
+    /// Constructs a new [super::RC5] encryption algorithm instance with dynamic width, key size and repetition count.
+    ///
+    /// # Arguments
+    ///
+    /// * width - The bit width of the word size to be used in the algorithm (16, 32, or 64).
+    /// * repetitions - The number of rounds of encryption to be performed by the algorithm.
+    /// * key - A slice of bytes representing the key to be used for encryption.
+    ///
+    /// # Returns
+    ///
+    /// A Result containing a boxed dyn [super::RC5Algo] instance on success, or a [RC5DynInitError] on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rc5::*;
+    ///
+    /// let key = b"my secret key";
+    /// let algo = rc5_dyn::new(32, 12, key).unwrap();
+    /// let pt_org = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+    /// let mut pt = pt_org.clone();
+    /// let mut ct = algo.encrypt(&mut pt).unwrap();
+    /// assert_ne!(pt_org, ct);
+    /// let decrypted = algo.decrypt(&mut ct).unwrap();
+    /// assert_eq!(pt_org, decrypted);
+    /// ````
+    pub fn new(
+        width: usize,
+        repetitions: u8,
+        key: &[u8],
+    ) -> Result<Box<dyn super::RC5Algo>, RC5DynInitError> {
+        const W16: usize = std::mem::size_of::<u16>() * 8;
+        const W32: usize = std::mem::size_of::<u32>() * 8;
+        const W64: usize = std::mem::size_of::<u64>() * 8;
+        match width {
+            W16 => Ok(Box::new(super::RC5::<u16>::new(repetitions, key)?)),
+            W32 => Ok(Box::new(super::RC5::<u32>::new(repetitions, key)?)),
+            W64 => Ok(Box::new(super::RC5::<u64>::new(repetitions, key)?)),
+            _ => Err(RC5DynInitError::InvalidWidth(width)),
+        }
     }
 
-    let ([version, width, repetitions, key_len], key) = control_block.split_array_ref();
-
-    if *version != 0x10 {
-        return Err(RC5DynControlBlockInitError::UnsupportedRC5Version(*version));
+    /// The `RC5DynInitError` enum represents the possible errors that can occur during the
+    /// [super::RC5] initialization with runtime width using [new]
+    #[derive(thiserror::Error, Debug)]
+    pub enum RC5DynControlBlockInitError {
+        #[error("invalid control block length `{0}`; should be at least 4 bytes long")]
+        InvalidControlBlockLength(usize),
+        #[error("unsupported rc5 algorithm version `{0}`; the only supported version is 0x10")]
+        UnsupportedRC5Version(u8),
+        #[error("specified key length `{0}` does not corespond to the provided key `{1}`")]
+        InvalidControlBlockKeyLength(u8, usize),
+        #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
+        InvalidWidth(usize),
+        #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+        InvalidKeySize(usize),
     }
 
-    if *key_len as usize != key.len() {
-        return Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(
-            *key_len,
-            key.len(),
-        ));
+    impl From<RC5DynInitError> for RC5DynControlBlockInitError {
+        fn from(value: RC5DynInitError) -> Self {
+            match value {
+                RC5DynInitError::InvalidWidth(size) => {
+                    RC5DynControlBlockInitError::InvalidWidth(size)
+                }
+                RC5DynInitError::InvalidKeySize(size) => {
+                    RC5DynControlBlockInitError::InvalidKeySize(size)
+                }
+            }
+        }
     }
+    /// Constructs a new [super::RC5] encryption algorithm instance from a rc5 control block
+    ///
+    /// # Arguments
+    ///
+    /// * control_block - The control block bytes, minimum length 4
+    ///
+    /// # Returns
+    ///
+    /// A Result containing a boxed dyn [super::RC5Algo] instance on success, or a [RC5DynControlBlockInitError] on failure.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use rc5::*;
+    ///
+    /// let control_block = [
+    ///     0x10, 0x20, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09
+    /// ];
+    /// let algo = rc5_dyn::from_control_block(&control_block).unwrap();
+    /// let pt_org = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
+    /// let mut pt = pt_org.clone();
+    /// let mut ct = algo.encrypt(&mut pt).unwrap();
+    /// assert_ne!(pt_org, ct);
+    /// let decrypted = algo.decrypt(&mut ct).unwrap();
+    /// assert_eq!(pt_org, decrypted);
+    /// ````
+    pub fn from_control_block(
+        control_block: &[u8],
+    ) -> Result<Box<dyn super::RC5Algo>, RC5DynControlBlockInitError> {
+        if control_block.len() < 4 {
+            return Err(RC5DynControlBlockInitError::InvalidControlBlockLength(
+                control_block.len(),
+            ));
+        }
 
-    Ok(new_rc5_dyn(*width as usize, *repetitions, key)?)
+        let ([version, width, repetitions, key_len], key) = control_block.split_array_ref();
+
+        if *version != 0x10 {
+            return Err(RC5DynControlBlockInitError::UnsupportedRC5Version(*version));
+        }
+
+        if *key_len as usize != key.len() {
+            return Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(
+                *key_len,
+                key.len(),
+            ));
+        }
+
+        Ok(new(*width as usize, *repetitions, key)?)
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::rc5_dyn::*;
     use super::*;
 
     #[test]
@@ -535,7 +543,7 @@ mod tests {
         let width = 32;
         let repetitions = 12;
         let key = [0; 256];
-        let res = new_rc5_dyn(width, repetitions, &key);
+        let res = rc5_dyn::new(width, repetitions, &key);
 
         assert!(matches!(
             res,
@@ -549,7 +557,7 @@ mod tests {
         let width = 123;
         let repetitions = 12;
         let key = [1, 2, 3, 4];
-        let res = new_rc5_dyn(width, repetitions, &key);
+        let res = new(width, repetitions, &key);
 
         assert!(matches!(
             res,
@@ -563,7 +571,7 @@ mod tests {
         let version = 0x10;
         let width = 32;
         let control_block = [version, width, 0x0C];
-        let res = new_rc5_dyn_from_control_block(&control_block);
+        let res = rc5_dyn::from_control_block(&control_block);
         assert!(matches!(
             res,
             Err(RC5DynControlBlockInitError::InvalidControlBlockLength(error_cb_len))
@@ -578,7 +586,7 @@ mod tests {
         let control_block = [
             version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
         ];
-        let res = new_rc5_dyn_from_control_block(&control_block);
+        let res = rc5_dyn::from_control_block(&control_block);
         assert!(matches!(
             res,
             Err(RC5DynControlBlockInitError::UnsupportedRC5Version(error_version))
@@ -594,7 +602,7 @@ mod tests {
         let control_block = [
             version, width, 0x0C, key_len, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB,
         ];
-        let res = new_rc5_dyn_from_control_block(&control_block);
+        let res = rc5_dyn::from_control_block(&control_block);
         assert!(matches!(
             res,
             Err(RC5DynControlBlockInitError::InvalidControlBlockKeyLength(error_b, error_key_len))
@@ -609,7 +617,7 @@ mod tests {
         let control_block = [
             version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
         ];
-        let res = new_rc5_dyn_from_control_block(&control_block);
+        let res = rc5_dyn::from_control_block(&control_block);
         assert!(matches!(
             res,
             Err(RC5DynControlBlockInitError::InvalidWidth(error_width))
@@ -624,7 +632,7 @@ mod tests {
         let control_block = [
             version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
         ];
-        let res = new_rc5_dyn_from_control_block(&control_block);
+        let res = rc5_dyn::from_control_block(&control_block);
         assert!(matches!(res, Ok(_)));
     }
 
@@ -633,7 +641,7 @@ mod tests {
         const WIDTH: usize = 16;
         let repetitions = 12;
         let key = [1, 2, 3, 4];
-        let res = new_rc5_dyn(WIDTH, repetitions, &key);
+        let res = rc5_dyn::new(WIDTH, repetitions, &key);
         assert!(res.is_ok());
 
         if let Ok(rc5) = res {
@@ -655,7 +663,7 @@ mod tests {
         const WIDTH: usize = 16;
         let repetitions = 12;
         let key = [1, 2, 3, 4];
-        let res = new_rc5_dyn(WIDTH, repetitions, &key);
+        let res = rc5_dyn::new(WIDTH, repetitions, &key);
         assert!(res.is_ok());
 
         if let Ok(rc5) = res {
