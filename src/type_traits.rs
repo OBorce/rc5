@@ -82,7 +82,7 @@ macro_rules! impl_from_to_bytes {
 impl_from_to_bytes!(u16 u32 u64);
 
 fn rotation_amount<T>(x: u32) -> u32 {
-    x % (std::mem::size_of::<T>() * 8) as u32
+    x % (std::mem::size_of::<T>() * BITS_IN_BYTE) as u32
 }
 
 #[track_caller]
@@ -101,6 +101,8 @@ where
         )
     }
 }
+
+pub const BITS_IN_BYTE: usize = 8;
 
 #[cfg(test)]
 mod tests {

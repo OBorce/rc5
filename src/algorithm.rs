@@ -10,6 +10,9 @@ use crate::type_traits::*;
 use std::cmp::max;
 use std::cmp::min;
 
+const NUM_WORDS_PER_BLOCK: usize = 2;
+const MAX_KEY_SIZE: usize = 255;
+
 /// The RC5 struct represents an instance of the RC5 block cipher algorithm.
 ///
 /// The `RC5` struct provides methods for initializing the algorithm with a key and
@@ -17,7 +20,7 @@ use std::cmp::min;
 /// words and blocks of data.
 pub struct RC5<T> {
     //TODO: maybe add an allocator support
-    s_arr: Box<[[T; 2]]>,
+    s_arr: Box<[[T; NUM_WORDS_PER_BLOCK]]>,
     s0: T,
     s1: T,
 }
@@ -59,7 +62,7 @@ where
     /// let rc5 = RC5::<u32>::new(12, key);
     /// ```
     pub fn new(repetitions: u8, key: &[u8]) -> Result<RC5<T>, RC5InitError> {
-        if key.len() > 255 {
+        if key.len() > MAX_KEY_SIZE {
             return Err(RC5InitError::InvalidKeySize(key.len()));
         }
 
@@ -74,7 +77,9 @@ where
 
         let t_num_bytes: usize = std::mem::size_of::<T>();
         let l_padding_size = match key.len() {
+            // if empty add at least 1 T
             0 => t_num_bytes,
+            // else pad any incomplete T
             len => (t_num_bytes - (len % t_num_bytes)) % t_num_bytes,
         };
         let l_iter = std::iter::repeat(0)
@@ -205,7 +210,7 @@ where
     /// Encrypts the two-word block represented by the reference `bytes`.
     ///
     /// The `bytes` parameter is a mutable reference to the two words (of type
-    /// `[u8; std::mem::size_of::<T>() * 2]`)
+    /// `[u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK]`)
     /// to be encrypted. The encrypted values are written back to the same array reference.
     ///
     /// # Examples
@@ -225,7 +230,7 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn encrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * 2]) {
+    pub fn encrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK]) {
         let (a_bytes, b_bytes) = split_in_half_mut_ref::<u8, { std::mem::size_of::<T>() }>(bytes);
         self.encrypt_word_bytes(a_bytes, b_bytes);
     }
@@ -308,7 +313,7 @@ where
     /// Decrypts the two-word block represented by the reference `bytes`.
     ///
     /// The `bytes` parameter is a mutable reference to the two words (of type
-    /// `[u8; std::mem::size_of::<T>() * 2]`)
+    /// `[u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK]`)
     /// to be decrypted. The decrypted values are written back to the same array reference.
     ///
     /// # Examples
@@ -328,14 +333,14 @@ where
     /// # Ok(())
     /// # }
     /// ```
-    pub fn decrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * 2]) {
+    pub fn decrypt_block(&self, bytes: &mut [u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK]) {
         let (a_bytes, b_bytes) = split_in_half_mut_ref::<u8, { std::mem::size_of::<T>() }>(bytes);
         self.decrypt_word_bytes(a_bytes, b_bytes);
     }
 }
 
 fn pw<T: num_traits::Unsigned + FromU64>() -> T {
-    let width = std::mem::size_of::<T>() * 8;
+    let width = std::mem::size_of::<T>() * BITS_IN_BYTE;
     // ODD((E - 2) * (1 << w))
     // constant for 64bit
     const P: u64 = 0xB7E151628AED2A6B;
@@ -344,7 +349,7 @@ fn pw<T: num_traits::Unsigned + FromU64>() -> T {
 }
 
 fn qw<T: num_traits::Unsigned + FromU64>() -> T {
-    let width = std::mem::size_of::<T>() * 8;
+    let width = std::mem::size_of::<T>() * BITS_IN_BYTE;
     // ODD((PHI - 1) * (1 << w))
     // constant for 64bit
     const Q: u64 = 0x9E3779B97F4A7C15;
@@ -356,21 +361,22 @@ fn qw<T: num_traits::Unsigned + FromU64>() -> T {
 /// [RC5] initialization
 #[derive(thiserror::Error, Debug)]
 pub enum RC5InitError {
-    #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+    #[error("invalid key size: `{0}`; supported range is [0, {MAX_KEY_SIZE}]")]
     InvalidKeySize(usize),
 }
 
 /// Module containing functions for creating dynamic [RC5] algorithms using the [rc5_dyn::RC5Algo] trait,
 /// from runtime width values or a control block.
 pub mod rc5_dyn {
+    use super::BITS_IN_BYTE;
+    use super::MAX_KEY_SIZE;
+    use super::NUM_WORDS_PER_BLOCK;
 
     /// The `RC5AlgoError` enum represents the possible errors that can occur during the
     /// encryption decryption in [RC5Algo].
     #[derive(thiserror::Error, Debug)]
     pub enum RC5AlgoError {
-        #[error(
-        "invalid input block size, can't divide into 2 word size blocks, expected `2 * {0}` sized block"
-    )]
+        #[error("invalid input block size, expected `{NUM_WORDS_PER_BLOCK} * {0}` sized block")]
         InvalidBlockSize(usize),
     }
 
@@ -406,7 +412,7 @@ pub mod rc5_dyn {
             + super::BitRotabable<T, Output = T>
             + super::BitRotabable<u32, Output = T>,
         [u8; std::mem::size_of::<T>()]:,
-        [u8; std::mem::size_of::<T>() * 2]:,
+        [u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK]:,
     {
         fn encrypt<'a>(&self, bytes: &'a mut [u8]) -> Result<&'a mut [u8], RC5AlgoError> {
             self.encrypt_block(&mut *try_into_two_word_sized::<T>(bytes)?);
@@ -419,13 +425,13 @@ pub mod rc5_dyn {
         }
 
         fn block_size(&self) -> usize {
-            std::mem::size_of::<T>() * 2
+            std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK
         }
     }
 
     fn try_into_two_word_sized<T>(
         bytes: &mut [u8],
-    ) -> Result<&mut [u8; std::mem::size_of::<T>() * 2], RC5AlgoError>
+    ) -> Result<&mut [u8; std::mem::size_of::<T>() * NUM_WORDS_PER_BLOCK], RC5AlgoError>
     where
         T: num_traits::Unsigned + super::FromToLeBytes<T>,
         [u8; std::mem::size_of::<T>()]:,
@@ -441,7 +447,7 @@ pub mod rc5_dyn {
     pub enum RC5DynInitError {
         #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
         InvalidWidth(usize),
-        #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+        #[error("invalid key size: `{0}`; supported range is [0, {MAX_KEY_SIZE}]")]
         InvalidKeySize(usize),
     }
 
@@ -484,9 +490,9 @@ pub mod rc5_dyn {
         repetitions: u8,
         key: &[u8],
     ) -> Result<Box<dyn RC5Algo>, RC5DynInitError> {
-        const W16: usize = std::mem::size_of::<u16>() * 8;
-        const W32: usize = std::mem::size_of::<u32>() * 8;
-        const W64: usize = std::mem::size_of::<u64>() * 8;
+        const W16: usize = std::mem::size_of::<u16>() * BITS_IN_BYTE;
+        const W32: usize = std::mem::size_of::<u32>() * BITS_IN_BYTE;
+        const W64: usize = std::mem::size_of::<u64>() * BITS_IN_BYTE;
         match width {
             W16 => Ok(Box::new(super::RC5::<u16>::new(repetitions, key)?)),
             W32 => Ok(Box::new(super::RC5::<u32>::new(repetitions, key)?)),
@@ -495,19 +501,24 @@ pub mod rc5_dyn {
         }
     }
 
+    const CONTROL_BLOCK_HEADER_LEN: usize = 4;
+    const VERSION_1_0: u8 = 0x10;
+
     /// The `RC5DynInitError` enum represents the possible errors that can occur during the
     /// [super::RC5] initialization with runtime width using [new]
     #[derive(thiserror::Error, Debug)]
     pub enum RC5DynControlBlockInitError {
-        #[error("invalid control block length `{0}`; should be at least 4 bytes long")]
+        #[error("invalid control block length `{0}`; should be at least {CONTROL_BLOCK_HEADER_LEN} bytes long")]
         InvalidControlBlockLength(usize),
-        #[error("unsupported rc5 algorithm version `{0}`; the only supported version is 0x10")]
+        #[error(
+            "unsupported rc5 algorithm version `{0}`; the only supported version is {VERSION_1_0}"
+        )]
         UnsupportedRC5Version(u8),
         #[error("specified key length `{0}` does not corespond to the provided key `{1}`")]
         InvalidControlBlockKeyLength(u8, usize),
         #[error("invalid width `{0}`; supported widths are: {{16, 32, 64}}")]
         InvalidWidth(usize),
-        #[error("invalid key size: `{0}`; supported range is [0, 255]")]
+        #[error("invalid key size: `{0}`; supported range is [0, {MAX_KEY_SIZE}]")]
         InvalidKeySize(usize),
     }
 
@@ -552,7 +563,7 @@ pub mod rc5_dyn {
     pub fn from_control_block(
         control_block: &[u8],
     ) -> Result<Box<dyn RC5Algo>, RC5DynControlBlockInitError> {
-        if control_block.len() < 4 {
+        if control_block.len() < CONTROL_BLOCK_HEADER_LEN {
             return Err(RC5DynControlBlockInitError::InvalidControlBlockLength(
                 control_block.len(),
             ));
@@ -560,7 +571,7 @@ pub mod rc5_dyn {
 
         let ([version, width, repetitions, key_len], key) = control_block.split_array_ref();
 
-        if *version != 0x10 {
+        if *version != VERSION_1_0 {
             return Err(RC5DynControlBlockInitError::UnsupportedRC5Version(*version));
         }
 
@@ -583,7 +594,7 @@ mod tests {
     #[test]
     fn invalid_key_size_32() {
         let repetitions = 12;
-        let key = [0; 256];
+        let key = [0; MAX_KEY_SIZE + 1];
         let res = RC5::<u32>::new(repetitions, &key);
 
         assert!(matches!(
@@ -597,7 +608,7 @@ mod tests {
     fn invalid_key_size() {
         let width = 32;
         let repetitions = 12;
-        let key = [0; 256];
+        let key = [0; MAX_KEY_SIZE + 1];
         let res = rc5_dyn::new(width, repetitions, &key);
 
         assert!(matches!(
@@ -688,7 +699,9 @@ mod tests {
             version, width, 0x0C, 0x0A, 0x20, 0x33, 0x7D, 0x83, 0x05, 0x5F, 0x62, 0x51, 0xBB, 0x09,
         ];
         let res = rc5_dyn::from_control_block(&control_block);
-        assert!(matches!(res, Ok(rc5) if rc5.block_size() == (width / 8 * 2) as usize));
+        assert!(
+            matches!(res, Ok(rc5) if rc5.block_size() == (width as usize / BITS_IN_BYTE * NUM_WORDS_PER_BLOCK))
+        );
     }
 
     #[test]
@@ -700,8 +713,8 @@ mod tests {
         assert!(res.is_ok());
 
         if let Ok(rc5) = res {
-            const INVALID_BLOCK_SIZE: usize = WIDTH / 8 * 3;
-            const EXPECTED_WORD_SIZE: usize = WIDTH / 8;
+            const INVALID_BLOCK_SIZE: usize = WIDTH / BITS_IN_BYTE * 3;
+            const EXPECTED_WORD_SIZE: usize = WIDTH / BITS_IN_BYTE;
             let mut pt = [0; INVALID_BLOCK_SIZE];
             let res = rc5.encrypt(&mut pt);
 
@@ -722,8 +735,8 @@ mod tests {
         assert!(res.is_ok());
 
         if let Ok(rc5) = res {
-            const INVALID_BLOCK_SIZE: usize = WIDTH / 8 * 3;
-            const EXPECTED_WORD_SIZE: usize = WIDTH / 8;
+            const INVALID_BLOCK_SIZE: usize = WIDTH / BITS_IN_BYTE * 3;
+            const EXPECTED_WORD_SIZE: usize = WIDTH / BITS_IN_BYTE;
             let mut pt = [0; INVALID_BLOCK_SIZE];
             let res = rc5.decrypt(&mut pt);
 

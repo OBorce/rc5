@@ -9,6 +9,8 @@
 #![feature(generic_const_exprs)]
 use rc5::*;
 
+pub const BITS_IN_BYTE: usize = 8;
+
 macro_rules! test_concrete_vs_dynamic {
     ($name:ident, $t:ty) => {
         #[test]
@@ -19,10 +21,10 @@ macro_rules! test_concrete_vs_dynamic {
             ];
             let repetitions = 12;
             let rc5_concrete = RC5::<$t>::new(repetitions, &key);
-            const W: usize = 8 * std::mem::size_of::<$t>();
+            const W: usize = BITS_IN_BYTE * std::mem::size_of::<$t>();
             let rc5_dyn = rc5_dyn::new(W, repetitions, &key);
 
-            let mut pt = [0; W * 2 / 8];
+            let mut pt = [0; W * 2 / BITS_IN_BYTE];
             let mut pt_dyn = pt.clone();
 
             assert!(rc5_concrete.is_ok());
